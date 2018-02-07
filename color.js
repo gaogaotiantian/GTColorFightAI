@@ -119,6 +119,17 @@ WriteTimeLeft = function(info) {
     }
     $('#time_left').text(s);
 }
+ListData = function(x, y) {
+    $('#user_list').empty();
+    var $dataRow = $('<div>');
+    for (var k in gameStatus['cells'][x+30*y]) {
+        $dataRow.append($("<p>").text(k + " : " + gameStatus['cells'][x+30*y][k].toFixed(2)));
+    }
+    console.log($dataRow)
+    console.log("abc");
+    console.log(gameStatus['cells'][x+30*y])
+    $('#user_list').append($dataRow);
+}
 ListUsers = function(users, currTime) {
     $('#user_list').empty();
     users = users.sort(function(a,b) { 
@@ -409,10 +420,8 @@ $(function() {
     })
 
     $('#my_canvas').click(function(e) {
-        if (gameStatus.token) {
-            xy = CanvasToXY(e.offsetX, e.offsetY);
-            Attack(xy[0], xy[1], gameStatus.token);
-        }
+        xy = CanvasToXY(e.offsetX, e.offsetY);
+        ListData(xy[0], xy[1]);
     })
 
     $('body').on("mouseenter", '.user-row', function() {
