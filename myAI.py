@@ -46,6 +46,7 @@ class EvalMap:
     def __init__(self, width, height):
         self.width = width
         self.height = height
+        self.dynamicAttr = ["base", "cost"]
         self.attrTable = {
             "location": {"val":2},
             "golden": {"val":1},
@@ -83,21 +84,30 @@ class EvalMap:
 
     def UpdateAttrTable(self, game):
         if game.goldCellNum <= 2:
-            self.attrTable["golden"]["val"] = 2
+            if game.baseNum < 3:
+                self.attrTable["golden"]["val"] = 4
+            else:
+                self.attrTable["golden"]["val"] = 2
         else:
             self.attrTable["golden"]["val"] = 1
 
         if game.uid == game.users[0].id:
-            self.attrTable['base']['val'] = 4
+            if len(game.users) > 1:
+                self.attrTable['base']['val'] = 3 + (game.users[0].cellNum - game.users[1].cellNum)/50
+            else:
+                self.attrTable['base']['val'] = 2
         else:
             self.attrTable['base']['val'] = 2
 
-    def EvalSpreadPattern(self, xx, yy, valKey, multi = 1):
-        for x in range(xx - 2, xx + 3):
-            for y in range(yy - 2, yy + 3):
+    def EvalSpreadPattern(self, xx, yy, valKey, multi = 1, skipMid = False):
+        for x in range(xx - 3, xx + 4):
+            for y in range(yy - 3, yy + 4):
                 if self.ValidXY(x, y):
-                    val = 1/((1 + self.GetDistance(x, y, xx, yy))**2)
-                    self.AddData(x, y, valKey, val*multi)
+                    if skipMid and x == xx and y == yy:
+                        pass
+                    else:
+                        val = 1/((1 + self.GetDistance(x, y, xx, yy)/2.0)**2)
+                        self.AddData(x, y, valKey, val*multi)
 
     def EvalLocation(self, game, cell):
         midWidth  = game.width / 2.0
@@ -117,7 +127,8 @@ class EvalMap:
         if baseUid != game.uid:
             for c in game.GetAdjacentCells(cell.x, cell.y):
                 if c.owner == baseUid:
-                    selfCellNum += 1
+                    if not c.isBase:
+                        selfCellNum += 1
                     self.AddData(c.x, c.y, "base", 0.25)
             if selfCellNum == 0:
                 self.EvalSpreadPattern(cell.x, cell.y, "base")
@@ -128,8 +139,9 @@ class EvalMap:
                     self.AddData(cell.x, cell.y, "base", 1)
                 else:
                     # [1,2,3,4] for [2.5, 2, 1.5, 1]
-                    self.EvalSpreadPattern(cell.x, cell.y, "base", 3-selfCellNum/2.0)
-                    self.AddData(cell.x, cell.y, "base", -4)
+                    multi = 3-selfCellNum/2.0
+                    self.EvalSpreadPattern(cell.x, cell.y, "base", multi = multi, skipMid = True)
+                    self.AddData(cell.x, cell.y, "base", -multi)
         else:
             self.EvalSpreadPattern(cell.x, cell.y, "base")
 
@@ -143,13 +155,20 @@ class EvalMap:
             takeTime = takeTime * (1-((adjCellNums-1)*0.25))
         self.SetData(cell.x, cell.y, "cost", takeTime)
 
-    def EvalCell(self, game, cell):
-        self.EvalLocation(game, cell)
-        if cell.cellType == "gold":
-            self.EvalGoldenCells(game, cell)
+    def EvalCellDynamic(self, game, cell):
         if cell.isBase:
             self.EvalBase(game, cell)
         self.EvalCost(game, cell)
+
+    def EvalCellStatic(self, game, cell):
+        self.EvalLocation(game, cell)
+        if cell.cellType == "gold":
+            self.EvalGoldenCells(game, cell)
+
+    def ClearDynamic(self):
+        for d in self.data:
+            for attr in self.dynamicAttr:
+                d.SetVal(attr, 0)
 
     def GetEval(self, x, y):
         return self.data[x+self.width*y].TotalVal()
@@ -169,9 +188,11 @@ class Cell(colorfight.Cell):
     
 class Game(colorfight.Game):
     def __init__(self):
-        colorfight.Game.__init__(self)
         self.cellCache = None
         self.lastBuildBase = 0
+        self.lastAttackCell = None
+        self.evalMap = None
+        colorfight.Game.__init__(self)
 
     def GetCell(self, x, y):
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -201,12 +222,14 @@ class Game(colorfight.Game):
                         for dy in range(-3, 4):
                             c = self.GetCell(x+dx, y+dy)
                             if c == None:
-                                val += 2
+                                val += 1.5
                             elif c.owner == self.uid:
                                 val += 1
                                 if c.isBase:
-                                    val -= 10
-                            elif c.owner != 0:
+                                    val -= 50/(1+abs(dx)+abs(dy))
+                            elif c.owner == 0:
+                                val += 0.5
+                            else:
                                 val -= 1
 
                     if val > best[2]:
@@ -216,19 +239,29 @@ class Game(colorfight.Game):
     def Refresh(self):
         colorfight.Game.Refresh(self)
         self.cellCache = [None] * (self.width * self.height)
-        self.evalMap = EvalMap(self.width, self.height)
+        if self.lastAttackCell != None:
+            c = self.GetCell(self.lastAttackCell[0], self.lastAttackCell[1])
+            c.owner = self.uid
+
+        if self.evalMap == None:
+            self.evalMap = EvalMap(self.width, self.height)
+            for x in range(self.width):
+                for y in range(self.height):
+                    c = self.GetCell(x, y)
+                    self.evalMap.EvalCellStatic(self, c)
+
+        self.evalMap.ClearDynamic()
         self.evalMap.UpdateAttrTable(self)
         for x in range(self.width):
             for y in range(self.height):
                 c = self.GetCell(x, y)
-                self.evalMap.EvalCell(self, c)
+                self.evalMap.EvalCellDynamic(self, c)
 
 
 if __name__ == '__main__':
     # Instantiate a Game object.
     g = Game()
     g.Refresh()
-    time1 = time.time()
     # You need to join the game using JoinGame(). 'MyAI' is the name of your
     # AI, you can change that to anything you want. This function will generate
     # a token file in the folder which preserves your identity so that you can
@@ -241,6 +274,7 @@ if __name__ == '__main__':
         while True:
             # Use a nested for loop to iterate through the cells on the map
             g.Refresh()
+            # Update the attacked cell after refresh
             g.evalMap.ExportJson('data.json')
             maxAtkCell = None
             for x in range(g.width):
@@ -259,6 +293,11 @@ if __name__ == '__main__':
             while True:
                 success, err_code, err_msg = g.AttackCell(maxAtkCell[0], maxAtkCell[1])
                 if err_code != 3:
+                    # Update that cell forehead 
+                    if success:
+                        g.lastAttackCell = (maxAtkCell[0], maxAtkCell[1])
+                    else:
+                        g.lastAttackCell = None
                     break
                 print success, err_code, err_msg
 

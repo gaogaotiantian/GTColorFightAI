@@ -229,7 +229,7 @@ DrawGame = function() {
             //        var fillColor = CombineColor(HashIdToColor(owner), HashIdToColor(attacker), Math.min(1, (currTime - cell['at']) / (cell['f'] - cell['at'])));
             //    }
             //}
-            fillColor = CombineColor(HashIdToColor(0), '#DD2200', Math.min(1, (cell['val'] - currMinVal)/(currMaxVal - currMinVal)));
+            fillColor = CombineColor(HashIdToColor(0), '#77EE77', Math.min(1, cell['val']/currMaxVal));
             if (cell['val'] > maxVal) {
                 maxVal = cell['val'];
             }
